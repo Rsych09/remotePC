@@ -1,0 +1,9 @@
+# Telegram Remote PC Control Agent Configuration
+# Токен бота от @BotFather
+bot_token = "ВАШ_ТОКЕН_БОТА"
+
+# Числовой ID владельца в Telegram (можно узнать у бота @userinfobot)
+allowed_user_id = 0
+
+# Автозагрузка программы при входе в Windows (true / false)
+autostart = true

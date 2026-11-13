@@ -1,0 +1,26 @@
+[package]
+name = "remotePC"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+chrono = "0.4.45"
+image = "0.25.10"
+serde = { version = "1.0.229", features = ["derive"] }
+sysinfo = "0.38.4"
+tao = "0.37.2"
+teloxide = { version = "0.17.0", features = ["macros"] }
+tokio = { version = "1.54.1", features = ["full"] }
+toml = "1.2.1"
+tray-icon = "0.26.1"
+windows-sys = { version = "0.61.2", features = ["Win32_UI_WindowsAndMessaging", "Win32_UI_Input_KeyboardAndMouse", "Win32_System_Shutdown", "Win32_System_Power", "Win32_System_Com"] }
+winreg = "0.56.0"
+xcap = "0.9.10"
+
+[profile.release]
+opt-level = "z"
+lto = true
+strip = true
+codegen-units = 1
+panic = "abort"
+
