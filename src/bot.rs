@@ -36,6 +36,12 @@ pub fn make_main_keyboard() -> InlineKeyboardMarkup {
         "🚀 Автозапуск: ❌ Выкл"
     };
 
+    let mute_btn_text = if crate::system::is_system_muted().unwrap_or(false) {
+        "🔊 Вкл звук"
+    } else {
+        "🔇 Mute"
+    };
+
     InlineKeyboardMarkup::new(vec![
         // Питание: ряд 1
         vec![
@@ -61,7 +67,7 @@ pub fn make_main_keyboard() -> InlineKeyboardMarkup {
         // Медиа и звук: ряд 5
         vec![
             InlineKeyboardButton::callback("🔉 -10%", "vol_down"),
-            InlineKeyboardButton::callback("🔇 Mute", "vol_mute"),
+            InlineKeyboardButton::callback(mute_btn_text, "vol_mute"),
             InlineKeyboardButton::callback("🔊 +10%", "vol_up"),
         ],
         // Управление воспроизведением и скриншот: ряд 6
@@ -133,6 +139,13 @@ pub async fn build_status_text(state: &AppState, prompt_override: Option<&str>) 
         "Отключена"
     };
 
+    let audio_str = match (crate::system::get_system_volume(), crate::system::is_system_muted()) {
+        (Some(vol), Some(true)) => format!("{}% (🔇 Выключен)", vol),
+        (Some(vol), Some(false)) => format!("{}%", vol),
+        (Some(vol), None) => format!("{}%", vol),
+        _ => "недоступно".to_string(),
+    };
+
     let current_time = Local::now().format("%H:%M:%S").to_string();
 
     let mut text = format!(
@@ -141,6 +154,7 @@ pub async fn build_status_text(state: &AppState, prompt_override: Option<&str>) 
         • Статус: Онлайн\n\
         • Загрузка CPU: {:.1}%\n\
         • Занято RAM: {:.2} ГБ / {:.2} ГБ ({}%)\n\
+        • Громкость: {}\n\
         • Таймер выключения: {}\n\
         • Автозагрузка Windows: {}\n\
         🕒 Время обновления: {}",
@@ -148,6 +162,7 @@ pub async fn build_status_text(state: &AppState, prompt_override: Option<&str>) 
         metrics.used_ram_gb,
         metrics.total_ram_gb,
         metrics.ram_percent,
+        audio_str,
         timer_str,
         autostart_str,
         current_time
@@ -438,6 +453,12 @@ async fn handle_callback_query(
                 "🔉 Громкость: 0% (минимум)".to_string()
             };
             let _ = bot.answer_callback_query(q.id.clone()).text(msg).await;
+            let text = build_status_text(&state, None).await;
+            let keyboard = make_main_keyboard();
+            let _ = bot
+                .edit_message_text(chat_id, msg_id, text)
+                .reply_markup(keyboard)
+                .await;
         }
 
         "vol_mute" => {
@@ -448,6 +469,12 @@ async fn handle_callback_query(
                 "🔊 Звук включен"
             };
             let _ = bot.answer_callback_query(q.id.clone()).text(msg).await;
+            let text = build_status_text(&state, None).await;
+            let keyboard = make_main_keyboard();
+            let _ = bot
+                .edit_message_text(chat_id, msg_id, text)
+                .reply_markup(keyboard)
+                .await;
         }
 
         "vol_up" => {
@@ -458,6 +485,12 @@ async fn handle_callback_query(
                 "🔊 Громкость: +10%".to_string()
             };
             let _ = bot.answer_callback_query(q.id.clone()).text(msg).await;
+            let text = build_status_text(&state, None).await;
+            let keyboard = make_main_keyboard();
+            let _ = bot
+                .edit_message_text(chat_id, msg_id, text)
+                .reply_markup(keyboard)
+                .await;
         }
 
         "media_play_pause" => {
@@ -638,7 +671,10 @@ mod tests {
         // Ряд 5: -10%, Mute, +10%
         assert_eq!(kb.inline_keyboard[4].len(), 3);
         assert_eq!(kb.inline_keyboard[4][0].text, "🔉 -10%");
-        assert_eq!(kb.inline_keyboard[4][1].text, "🔇 Mute");
+        assert!(
+            kb.inline_keyboard[4][1].text == "🔇 Mute"
+                || kb.inline_keyboard[4][1].text == "🔊 Вкл звук"
+        );
         assert_eq!(kb.inline_keyboard[4][2].text, "🔊 +10%");
 
         // Ряд 6: Play/Pause, Скриншот

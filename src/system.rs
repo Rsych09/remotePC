@@ -46,9 +46,6 @@ const IID_IAUDIO_ENDPOINT_VOLUME: GUID = GUID {
     data4: [0x97, 0x22, 0x0C, 0xF7, 0x40, 0x78, 0x22, 0x9A],
 };
 
-const APPCOMMAND_VOLUME_MUTE: u32 = 8;
-const APPCOMMAND_VOLUME_DOWN: u32 = 9;
-const APPCOMMAND_VOLUME_UP: u32 = 10;
 const APPCOMMAND_MEDIA_PLAY_PAUSE: u32 = 14;
 
 #[repr(C)]
@@ -223,9 +220,33 @@ pub fn press_key(vk: u16) -> u32 {
     }
 }
 
+/// Проверка, выключен ли звук в системе (Mute)
+pub fn is_system_muted() -> Option<bool> {
+    with_endpoint_volume(|ptr, vtbl| unsafe {
+        let mut muted: i32 = 0;
+        if ((*vtbl).get_mute)(ptr, &mut muted) == 0 {
+            Some(muted != 0)
+        } else {
+            None
+        }
+    })
+}
+
+/// Получение текущего уровня громкости (0..100%)
+pub fn get_system_volume() -> Option<u32> {
+    with_endpoint_volume(|ptr, vtbl| unsafe {
+        let mut current: f32 = 0.0;
+        if ((*vtbl).get_master_volume_level_scalar)(ptr, &mut current) == 0 {
+            Some((current * 100.0).round() as u32)
+        } else {
+            None
+        }
+    })
+}
+
 /// Увеличение громкости на 10% (возвращает актуальный % громкости)
 pub fn volume_up_10() -> u32 {
-    let new_percent = with_endpoint_volume(|ptr, vtbl| unsafe {
+    if let Some(new_percent) = with_endpoint_volume(|ptr, vtbl| unsafe {
         let mut current: f32 = 0.0;
         if ((*vtbl).get_master_volume_level_scalar)(ptr, &mut current) == 0 {
             let next = (current + 0.10).min(1.0);
@@ -236,18 +257,20 @@ pub fn volume_up_10() -> u32 {
         } else {
             None
         }
-    });
+    }) {
+        return new_percent;
+    }
 
-    send_shell_app_command(APPCOMMAND_VOLUME_UP);
-    send_keybd_event(VK_VOLUME_UP, 0x30);
-    press_key(VK_VOLUME_UP);
-
-    new_percent.unwrap_or(0)
+    // Резервный вариант, если Core Audio недоступен
+    for _ in 0..5 {
+        send_keybd_event(VK_VOLUME_UP, 0x30);
+    }
+    0
 }
 
 /// Уменьшение громкости на 10% (возвращает актуальный % громкости)
 pub fn volume_down_10() -> u32 {
-    let new_percent = with_endpoint_volume(|ptr, vtbl| unsafe {
+    if let Some(new_percent) = with_endpoint_volume(|ptr, vtbl| unsafe {
         let mut current: f32 = 0.0;
         if ((*vtbl).get_master_volume_level_scalar)(ptr, &mut current) == 0 {
             let next = (current - 0.10).max(0.0);
@@ -256,33 +279,39 @@ pub fn volume_down_10() -> u32 {
         } else {
             None
         }
-    });
+    }) {
+        return new_percent;
+    }
 
-    send_shell_app_command(APPCOMMAND_VOLUME_DOWN);
-    send_keybd_event(VK_VOLUME_DOWN, 0x2E);
-    press_key(VK_VOLUME_DOWN);
-
-    new_percent.unwrap_or(0)
+    // Резервный вариант, если Core Audio недоступен
+    for _ in 0..5 {
+        send_keybd_event(VK_VOLUME_DOWN, 0x2E);
+    }
+    0
 }
 
 /// Переключение режима без звука (возвращает true если звук выключен)
 pub fn volume_mute() -> bool {
-    let is_muted = with_endpoint_volume(|ptr, vtbl| unsafe {
-        let mut muted: i32 = 0;
-        if ((*vtbl).get_mute)(ptr, &mut muted) == 0 {
-            let new_muted = if muted != 0 { 0 } else { 1 };
-            let _ = ((*vtbl).set_mute)(ptr, new_muted, std::ptr::null());
-            Some(new_muted != 0)
+    if let Some(new_muted_state) = with_endpoint_volume(|ptr, vtbl| unsafe {
+        let mut current_mute: i32 = 0;
+        if ((*vtbl).get_mute)(ptr, &mut current_mute) == 0 {
+            let target_mute = if current_mute != 0 { 0 } else { 1 };
+            let hr = ((*vtbl).set_mute)(ptr, target_mute, std::ptr::null());
+            if hr == 0 {
+                Some(target_mute != 0)
+            } else {
+                None
+            }
         } else {
             None
         }
-    });
+    }) {
+        return new_muted_state;
+    }
 
-    send_shell_app_command(APPCOMMAND_VOLUME_MUTE);
+    // Резервный вариант: одиночный toggle через keybd_event
     send_keybd_event(VK_VOLUME_MUTE, 0x20);
-    press_key(VK_VOLUME_MUTE);
-
-    is_muted.unwrap_or(false)
+    false
 }
 
 /// Воспроизведение / Пауза мультимедиа
@@ -421,5 +450,14 @@ mod tests {
         let vol_down = volume_down_10();
         println!("Volume after down: {}%", vol_down);
         assert!(vol_down <= 100);
+
+        let initial_mute = is_system_muted().unwrap_or(false);
+        let m1 = volume_mute();
+        assert_eq!(m1, !initial_mute);
+        assert_eq!(is_system_muted(), Some(!initial_mute));
+
+        let m2 = volume_mute();
+        assert_eq!(m2, initial_mute);
+        assert_eq!(is_system_muted(), Some(initial_mute));
     }
 }
